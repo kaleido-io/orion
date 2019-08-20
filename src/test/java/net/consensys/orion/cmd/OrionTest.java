@@ -150,4 +150,17 @@ class OrionTest {
     Config config = Config.load("workdir=\"" + tempDir.resolve("data") + "\"\ntls=\"off\"\n");
     assertThrows(OrionStartException.class, () -> orion.run(System.out, System.err, config));
   }
+
+  @Test
+  void customHostsFile(@TempDirectory Path tempDir) {
+	String origHostsFile = System.getProperty("jdk.net.hosts.file");
+	try {
+		System.setProperty("jdk.net.hosts.file", "/tmp/hosts");
+	    Orion orion = new Orion();
+	    assertEquals("/tmp/hosts", orion.getVertx());
+	}
+	finally {
+		System.setProperty("jdk.net.hosts.file", origHostsFile);
+	}
+  }
 }

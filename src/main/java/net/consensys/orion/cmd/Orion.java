@@ -12,7 +12,6 @@
  */
 package net.consensys.orion.cmd;
 
-import static io.vertx.core.Vertx.vertx;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static net.consensys.orion.http.server.HttpContentType.APPLICATION_OCTET_STREAM;
 import static net.consensys.orion.http.server.HttpContentType.CBOR;
@@ -20,6 +19,39 @@ import static net.consensys.orion.http.server.HttpContentType.JSON;
 import static net.consensys.orion.http.server.HttpContentType.ORION;
 import static net.consensys.orion.http.server.HttpContentType.TEXT;
 
+import java.io.IOException;
+import java.io.PrintStream;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.security.Security;
+import java.sql.SQLException;
+import java.util.Scanner;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import javax.annotation.Nullable;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.util.Strings;
+
+import io.vertx.core.AsyncResult;
+import io.vertx.core.Future;
+import io.vertx.core.Handler;
+import io.vertx.core.Vertx;
+import io.vertx.core.VertxOptions;
+import io.vertx.core.http.ClientAuth;
+import io.vertx.core.http.HttpServer;
+import io.vertx.core.http.HttpServerOptions;
+import io.vertx.core.net.PemKeyCertOptions;
+import io.vertx.ext.web.Router;
+import io.vertx.ext.web.handler.BodyHandler;
+import io.vertx.ext.web.handler.LoggerHandler;
+import io.vertx.ext.web.handler.ResponseContentTypeHandler;
 import net.consensys.cava.crypto.sodium.Sodium;
 import net.consensys.cava.kv.KeyValueStore;
 import net.consensys.cava.kv.LevelDBKeyValueStore;
@@ -53,36 +85,6 @@ import net.consensys.orion.storage.Sha512_256StorageKeyBuilder;
 import net.consensys.orion.storage.Storage;
 import net.consensys.orion.storage.StorageKeyBuilder;
 import net.consensys.orion.utils.TLS;
-
-import java.io.IOException;
-import java.io.PrintStream;
-import java.net.MalformedURLException;
-import java.net.URL;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.security.Security;
-import java.sql.SQLException;
-import java.util.Scanner;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.atomic.AtomicBoolean;
-import javax.annotation.Nullable;
-
-import io.vertx.core.AsyncResult;
-import io.vertx.core.Future;
-import io.vertx.core.Handler;
-import io.vertx.core.Vertx;
-import io.vertx.core.http.ClientAuth;
-import io.vertx.core.http.HttpServer;
-import io.vertx.core.http.HttpServerOptions;
-import io.vertx.core.net.PemKeyCertOptions;
-import io.vertx.ext.web.Router;
-import io.vertx.ext.web.handler.BodyHandler;
-import io.vertx.ext.web.handler.LoggerHandler;
-import io.vertx.ext.web.handler.ResponseContentTypeHandler;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 public class Orion {
 
@@ -218,9 +220,25 @@ public class Orion {
     clientRouter.post("/findPrivacyGroup").consumes(JSON.httpHeaderValue).produces(JSON.httpHeaderValue).handler(
         new FindPrivacyGroupHandler(queryPrivacyGroupStorage, privacyGroupStorage));
   }
+  
+  private static Vertx newVertx() {
+	  VertxOptions vertxOpts = new VertxOptions();
+	  try {
+		  String customHostsFile = System.getProperty("jdk.net.hosts.file");
+		  if (Strings.isNotBlank(customHostsFile)) {
+			  log.info("Using custom DNS hosts file", customHostsFile);
+			  vertxOpts.getAddressResolverOptions().setHostsPath(customHostsFile);
+		  }
+	  }
+	  catch(Exception e) {
+	      log.warn("Failed to query 'jdk.net.hosts.file' system property", e);		  
+	  }
+	  Vertx vertx = Vertx.vertx(vertxOpts);
+	  return vertx;
+  }
 
   public Orion() {
-    this(vertx());
+    this(newVertx());
   }
 
   public Orion(Vertx vertx) {
@@ -588,5 +606,9 @@ public class Orion {
 
   public void addPeer(final URL url) {
     discovery.addPeer(url);
+  }
+  
+  Vertx getVertx() {
+	  return vertx;
   }
 }
