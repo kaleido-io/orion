@@ -232,7 +232,7 @@ public class Orion {
 	  try {
 		  String customHostsFile = System.getProperty("jdk.net.hosts.file");
 		  if (Strings.isNotBlank(customHostsFile)) {
-			  log.info("Using custom DNS hosts file: {}", customHostsFile);
+			  log.debug("Using custom DNS hosts file: {}", customHostsFile);
 			  vertxOpts.getAddressResolverOptions().setHostsPath(customHostsFile);
 		  }
 	  }
