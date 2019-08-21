@@ -17,27 +17,32 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import net.consensys.cava.junit.TempDirectory;
-import net.consensys.cava.junit.TempDirectoryExtension;
-import net.consensys.orion.config.Config;
-import net.consensys.orion.enclave.sodium.StoredPrivateKey;
-import net.consensys.orion.http.server.HttpContentType;
-import net.consensys.orion.utils.Serializer;
-
+import java.io.BufferedWriter;
 import java.io.ByteArrayInputStream;
+import java.io.File;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mockito;
 
 import io.vertx.core.AsyncResult;
 import io.vertx.core.Future;
 import io.vertx.core.Handler;
 import io.vertx.core.Verticle;
 import io.vertx.core.http.HttpServer;
+import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.impl.VertxInternal;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mockito;
+import net.consensys.cava.junit.TempDirectory;
+import net.consensys.cava.junit.TempDirectoryExtension;
+import net.consensys.orion.config.Config;
+import net.consensys.orion.enclave.sodium.StoredPrivateKey;
+import net.consensys.orion.http.server.HttpContentType;
+import net.consensys.orion.utils.Serializer;
 
 @ExtendWith(TempDirectoryExtension.class)
 class OrionTest {
@@ -149,5 +154,44 @@ class OrionTest {
     Orion orion = new Orion(vertx);
     Config config = Config.load("workdir=\"" + tempDir.resolve("data") + "\"\ntls=\"off\"\n");
     assertThrows(OrionStartException.class, () -> orion.run(System.out, System.err, config));
+  }
+  
+  @Test
+  void customHostsFile(@TempDirectory Path tempDir) throws Throwable {
+	File tempFile = File.createTempFile("orion-ut","hosts");
+	tempFile.deleteOnExit();
+	HttpServer server =  orion.getVertx().createHttpServer().requestHandler(new Handler<HttpServerRequest>() {
+		@Override
+		public void handle(HttpServerRequest event) {
+			event.response().setStatusCode(200).end();
+		}	    	
+	}).listen(0);
+	try (BufferedWriter w = Files.newBufferedWriter(tempFile.toPath(), UTF_8)) {
+		w.write("\n127.0.0.1       oriontest.example.com\n\n");
+		w.close();
+		System.setProperty("jdk.net.hosts.file", tempFile.getAbsolutePath());
+	    Orion orion = new Orion();
+	    AtomicInteger status = new AtomicInteger();
+	    AtomicReference<Throwable> err = new AtomicReference<>();
+	    for (int attempt = 0; attempt < 10 && status.get() != 200; attempt++) {
+	    	Thread.sleep(50); // listener start is async
+	    	status.set(-1);
+		    orion.getVertx().createHttpClient().get(server.actualPort(), "oriontest.example.com", "/", httpRes -> {
+		    	err.set(null); status.set(httpRes.statusCode());
+		    	synchronized(OrionTest.this) { OrionTest.this.notify(); }
+		    }).exceptionHandler(httpErr -> {
+		    	err.set(httpErr); status.set(500);
+		    	synchronized(OrionTest.this) { OrionTest.this.notify(); }
+		    }).end();
+		    synchronized(this) { if(status.get() < 0) { this.wait(10000); } }
+	    }
+	    if (err.get() != null) throw err.get();
+		assertEquals(200, status.get());    	
+	}
+	finally {
+		server.close();
+		tempFile.delete();
+		System.setProperty("jdk.net.hosts.file", "");
+	}
   }
 }
